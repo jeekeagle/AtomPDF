@@ -1,0 +1,583 @@
+﻿import { PDFDocument } from 'pdf-lib';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import type {
+  PdfDocumentRecord,
+  PdfExportScope,
+  PdfNodeTone,
+  PdfStudioState,
+  PdfThemeRecord,
+  PdfTreeNode
+} from '../types';
+
+GlobalWorkerOptions.workerSrc = workerUrl;
+
+const DB_NAME = 'pdf-knowledge-atlas';
+const DB_VERSION = 2;
+const STORE_DOCS = 'documents';
+const STORE_TREE = 'nodes';
+const STORE_META = 'meta';
+const STORE_THEMES = 'themes';
+
+interface StoredDocument extends PdfDocumentRecord {
+  buffer: ArrayBuffer;
+}
+
+interface MetaRecord {
+  key: string;
+  value: string;
+}
+
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+const openDb = () => {
+  if (!dbPromise) {
+    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(STORE_DOCS)) {
+          db.createObjectStore(STORE_DOCS, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(STORE_TREE)) {
+          db.createObjectStore(STORE_TREE, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(STORE_META)) {
+          db.createObjectStore(STORE_META, { keyPath: 'key' });
+        }
+        if (!db.objectStoreNames.contains(STORE_THEMES)) {
+          db.createObjectStore(STORE_THEMES, { keyPath: 'id' });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  return dbPromise;
+};
+
+const requestValue = <T>(
+  storeName: string,
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest<T>
+) =>
+  openDb().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const transaction = db.transaction(storeName, mode);
+        const request = run(transaction.objectStore(storeName));
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      })
+  );
+
+const readAll = <T>(storeName: string) =>
+  requestValue<T[]>(storeName, 'readonly', (store) => store.getAll());
+
+const putRecord = (storeName: string, value: unknown) =>
+  requestValue<IDBValidKey>(storeName, 'readwrite', (store) => store.put(value));
+
+const deleteRecord = (storeName: string, key: string) =>
+  requestValue<undefined>(storeName, 'readwrite', (store) => store.delete(key));
+
+const now = () => new Date().toISOString();
+
+const makeId = (prefix: string) =>
+  `${prefix}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+
+const seedNodes = (): PdfTreeNode[] => {
+  const createdAt = now();
+  const rootId = 'pdf-root-ai';
+  const sections: Array<[string, string, PdfNodeTone]> = [
+    ['pdf-node-cognition', '认知', 'brick'],
+    ['pdf-node-knowledge', '知识', 'teal'],
+    ['pdf-node-technology', '技术', 'gold'],
+    ['pdf-node-practice', '实践', 'ink'],
+    ['pdf-node-industry', '行业', 'brick']
+  ];
+  return [
+    {
+      id: rootId,
+      parentId: null,
+      title: 'AI',
+      note: '领域根节点',
+      tone: 'ink',
+      order: 0,
+      pages: [],
+      createdAt,
+      updatedAt: createdAt
+    },
+    ...sections.map(([id, title, tone], index) => ({
+      id,
+      parentId: rootId,
+      title,
+      note: '',
+      tone,
+      order: index,
+      pages: [],
+      createdAt,
+      updatedAt: createdAt
+    }))
+  ];
+};
+
+const publicState = async (): Promise<PdfStudioState> => {
+  const [documents, nodes, meta, themes] = await Promise.all([
+    readAll<StoredDocument>(STORE_DOCS),
+    readAll<PdfTreeNode>(STORE_TREE),
+    readAll<MetaRecord>(STORE_META),
+    readAll<PdfThemeRecord>(STORE_THEMES)
+  ]);
+  const tree = nodes.length ? nodes : seedNodes();
+  if (!nodes.length) {
+    await Promise.all(tree.map((node) => putRecord(STORE_TREE, node)));
+  }
+  const workspaceName =
+    meta.find((item) => item.key === 'workspace')?.value?.trim() || 'AI 知识树';
+  const visibleDocuments = documents
+    .map((item) => {
+      const copy = { ...item };
+      delete (copy as Partial<StoredDocument>).buffer;
+      return copy;
+    })
+    .sort((a, b) => b.importedAt.localeCompare(a.importedAt));
+  const pages = visibleDocuments.reduce((sum, document) => sum + document.pages.length, 0);
+  const placedPages = tree.reduce((sum, node) => sum + node.pages.length, 0);
+  return {
+    workspaceName,
+    documents: visibleDocuments,
+    nodes: tree,
+    themes,
+    stats: {
+      documents: visibleDocuments.length,
+      pages,
+      nodes: tree.length,
+      placedPages,
+      themes: themes.length
+    },
+    updatedAt: now()
+  };
+};
+
+const extractText = async (buffer: ArrayBuffer, pageCount: number) => {
+  const previews = new Map<number, string>();
+  try {
+    const task = getDocument({ data: new Uint8Array(buffer.slice(0)) });
+    const pdf = await task.promise;
+    for (let index = 1; index <= pageCount; index += 1) {
+      const page = await pdf.getPage(index);
+      const content = await page.getTextContent();
+      const text = content.items
+        .map((item) => ('str' in item ? item.str : ''))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 320);
+      previews.set(index, text);
+      page.cleanup();
+    }
+    await task.destroy();
+  } catch {
+    // A PDF without a usable text layer still imports as page images.
+  }
+  return previews;
+};
+
+const childrenOf = (nodes: PdfTreeNode[], parentId: string | null) =>
+  nodes.filter((node) => node.parentId === parentId).sort((a, b) => a.order - b.order);
+
+const isDescendant = (nodes: PdfTreeNode[], nodeId: string, candidateId: string) => {
+  let cursor = nodes.find((node) => node.id === candidateId);
+  const seen = new Set<string>();
+  while (cursor?.parentId && !seen.has(cursor.parentId)) {
+    if (cursor.parentId === nodeId) return true;
+    seen.add(cursor.parentId);
+    cursor = nodes.find((node) => node.id === cursor?.parentId);
+  }
+  return false;
+};
+
+const descendantsOf = (nodes: PdfTreeNode[], nodeId: string) => {
+  const result = new Set<string>();
+  const visit = (parentId: string) => {
+    for (const node of nodes) {
+      if (node.parentId === parentId && !result.has(node.id)) {
+        result.add(node.id);
+        visit(node.id);
+      }
+    }
+  };
+  visit(nodeId);
+  return result;
+};
+
+const collectBranchPages = (nodes: PdfTreeNode[], nodeId: string) => {
+  const pages: string[] = [];
+  const visit = (id: string) => {
+    const node = nodes.find((item) => item.id === id);
+    if (!node) return;
+    pages.push(...node.pages);
+    childrenOf(nodes, id).forEach((child) => visit(child.id));
+  };
+  visit(nodeId);
+  return pages;
+};
+
+const parsePageId = (value: string) => {
+  const separator = value.lastIndexOf(':');
+  if (separator < 1) return null;
+  const documentId = value.slice(0, separator);
+  const pageNumber = Number(value.slice(separator + 1));
+  if (!documentId || !Number.isInteger(pageNumber) || pageNumber < 1) return null;
+  return { documentId, pageNumber };
+};
+
+const saveNodes = async (nodes: PdfTreeNode[]) => {
+  await Promise.all(nodes.map((node) => putRecord(STORE_TREE, node)));
+};
+
+const objectUrls = new Map<string, string>();
+
+const blobUrlFor = async (id: string) => {
+  const cached = objectUrls.get(id);
+  if (cached) return cached;
+  const documents = await readAll<StoredDocument>(STORE_DOCS);
+  const document = documents.find((item) => item.id === id);
+  if (!document) throw new Error('找不到这个 PDF');
+  const url = URL.createObjectURL(
+    new Blob([document.buffer], { type: 'application/pdf' })
+  );
+  objectUrls.set(id, url);
+  return url;
+};
+
+const readNodes = async () => {
+  const nodes = await readAll<PdfTreeNode>(STORE_TREE);
+  if (nodes.length) return nodes;
+  const seeded = seedNodes();
+  await saveNodes(seeded);
+  return seeded;
+};
+
+export const browserApi = {
+  state: () => publicState(),
+
+  documentUrl: (id: string) => blobUrlFor(id),
+
+  documentDownloadUrl: async (id: string) => blobUrlFor(id),
+
+  renameWorkspace: async (workspaceName: string) => {
+    await putRecord(STORE_META, { key: 'workspace', value: workspaceName });
+    return publicState();
+  },
+
+  uploadDocument: async (file: File) => {
+    const buffer = await file.arrayBuffer();
+    const parsed = await PDFDocument.load(buffer, {
+      ignoreEncryption: true,
+      updateMetadata: false
+    });
+    const rawPages = parsed.getPages();
+    if (!rawPages.length) throw new Error('这个 PDF 里没有可读取的页面');
+    const previews = await extractText(buffer, rawPages.length);
+    const id = makeId('pdf');
+    const document: StoredDocument = {
+      id,
+      name: file.name.replace(/\.pdf$/i, '').trim() || '未命名文档',
+      fileName: `${id}.pdf`,
+      sizeBytes: buffer.byteLength,
+      pageCount: rawPages.length,
+      importedAt: now(),
+      pages: rawPages.map((page, index) => {
+        const { width, height } = page.getSize();
+        const number = index + 1;
+        return {
+          id: `${id}:${number}`,
+          number,
+          width,
+          height,
+          textPreview: previews.get(number) || ''
+        };
+      }),
+      buffer
+    };
+    await putRecord(STORE_DOCS, document);
+    return publicState();
+  },
+
+  renameDocument: async (id: string, name: string) => {
+    const documents = await readAll<StoredDocument>(STORE_DOCS);
+    const document = documents.find((item) => item.id === id);
+    if (document) {
+      document.name = name;
+      await putRecord(STORE_DOCS, document);
+    }
+    return publicState();
+  },
+
+  deleteDocument: async (id: string) => {
+    const documents = await readAll<StoredDocument>(STORE_DOCS);
+    const document = documents.find((item) => item.id === id);
+    await deleteRecord(STORE_DOCS, id);
+    const cached = objectUrls.get(id);
+    if (cached) {
+      URL.revokeObjectURL(cached);
+      objectUrls.delete(id);
+    }
+    if (document) {
+      const removed = new Set(document.pages.map((page) => page.id));
+      const nodes = await readNodes();
+      await saveNodes(
+        nodes.map((node) => ({
+          ...node,
+          pages: node.pages.filter((pageId) => !removed.has(pageId))
+        }))
+      );
+    }
+    return publicState();
+  },
+
+  createNode: async (payload: {
+    title: string;
+    parentId: string | null;
+    note?: string;
+    tone?: PdfNodeTone;
+  }) => {
+    const nodes = await readNodes();
+    const siblings = nodes.filter((node) => node.parentId === payload.parentId);
+    const createdAt = now();
+    const node: PdfTreeNode = {
+      id: makeId('pdf-node'),
+      parentId: payload.parentId,
+      title: payload.title.slice(0, 40),
+      note: (payload.note || '').slice(0, 240),
+      tone: payload.tone || 'teal',
+      order: siblings.length
+        ? Math.max(...siblings.map((item) => item.order)) + 1
+        : 0,
+      pages: [],
+      createdAt,
+      updatedAt: createdAt
+    };
+    nodes.push(node);
+    await saveNodes(nodes);
+    return { state: await publicState(), node };
+  },
+
+  updateNode: async (
+    id: string,
+    payload: Partial<{
+      title: string;
+      parentId: string | null;
+      note: string;
+      tone: PdfNodeTone;
+      order: number;
+    }>
+  ) => {
+    const nodes = await readNodes();
+    const node = nodes.find((item) => item.id === id);
+    if (!node) throw new Error('节点不存在');
+    if (payload.title) node.title = payload.title.slice(0, 40);
+    if (typeof payload.note === 'string') node.note = payload.note.slice(0, 240);
+    if (payload.tone) node.tone = payload.tone;
+    if (typeof payload.parentId !== 'undefined') {
+      const nextParent = payload.parentId;
+      if (nextParent === node.id) throw new Error('节点不能成为自己的上级');
+      if (nextParent && isDescendant(nodes, node.id, nextParent)) {
+        throw new Error('不能把节点移动到它的子节点下');
+      }
+      if (nextParent !== node.parentId) {
+        const siblings = nodes.filter(
+          (item) => item.id !== node.id && item.parentId === nextParent
+        );
+        node.parentId = nextParent;
+        node.order = siblings.length
+          ? Math.max(...siblings.map((item) => item.order)) + 1
+          : 0;
+      }
+    }
+    node.updatedAt = now();
+    await saveNodes(nodes);
+    return publicState();
+  },
+
+  deleteNode: async (id: string) => {
+    const nodes = await readNodes();
+    const removed = new Set([id, ...descendantsOf(nodes, id)]);
+    await saveNodes(nodes.filter((node) => !removed.has(node.id)));
+    return publicState();
+  },
+
+  createTheme: async (payload: {
+    title: string;
+    note?: string;
+    pages: string[];
+    coverPageId?: string | null;
+  }) => {
+    const documents = await readAll<StoredDocument>(STORE_DOCS);
+    const valid = new Set(
+      documents.flatMap((document) => document.pages.map((page) => page.id))
+    );
+    const pages = payload.pages.filter((pageId) => valid.has(pageId));
+    if (!pages.length) throw new Error('请先选择要组合的页面');
+    const createdAt = now();
+    const theme: PdfThemeRecord = {
+      id: makeId('pdf-theme'),
+      title: payload.title.trim().slice(0, 60) || '未命名主题',
+      note: (payload.note || '').slice(0, 240),
+      coverPageId:
+        payload.coverPageId && pages.includes(payload.coverPageId)
+          ? payload.coverPageId
+          : pages[0],
+      pages,
+      createdAt,
+      updatedAt: createdAt
+    };
+    const themes = await readAll<PdfThemeRecord>(STORE_THEMES);
+    await putRecord(STORE_THEMES, theme);
+    void themes;
+    return { state: await publicState(), theme };
+  },
+
+  updateTheme: async (
+    id: string,
+    payload: Partial<{
+      title: string;
+      note: string;
+      pages: string[];
+      coverPageId: string | null;
+    }>
+  ) => {
+    const themes = await readAll<PdfThemeRecord>(STORE_THEMES);
+    const theme = themes.find((item) => item.id === id);
+    if (!theme) throw new Error('主题不存在');
+    if (payload.title) theme.title = payload.title.slice(0, 60);
+    if (typeof payload.note === 'string') theme.note = payload.note.slice(0, 240);
+    if (Array.isArray(payload.pages) && payload.pages.length) {
+      theme.pages = payload.pages;
+    }
+    if (
+      typeof payload.coverPageId === 'string' &&
+      theme.pages.includes(payload.coverPageId)
+    ) {
+      theme.coverPageId = payload.coverPageId;
+    }
+    theme.updatedAt = now();
+    await putRecord(STORE_THEMES, theme);
+    return publicState();
+  },
+
+  deleteTheme: async (id: string) => {
+    await deleteRecord(STORE_THEMES, id);
+    return publicState();
+  },
+
+  addPages: async (nodeId: string, pageIds: string[], index?: number) => {
+    const nodes = await readNodes();
+    const node = nodes.find((item) => item.id === nodeId);
+    if (!node) throw new Error('节点不存在');
+    const documents = await readAll<StoredDocument>(STORE_DOCS);
+    const valid = new Set(
+      documents.flatMap((document) => document.pages.map((page) => page.id))
+    );
+    const incoming = pageIds.filter(
+      (pageId) => valid.has(pageId) && !node.pages.includes(pageId)
+    );
+    const insertAt =
+      typeof index === 'number' && Number.isInteger(index)
+        ? Math.min(Math.max(index, 0), node.pages.length)
+        : node.pages.length;
+    node.pages.splice(insertAt, 0, ...new Set(incoming));
+    node.updatedAt = now();
+    await saveNodes(nodes);
+    return publicState();
+  },
+
+  removePages: async (nodeId: string, pageIds: string[]) => {
+    const nodes = await readNodes();
+    const node = nodes.find((item) => item.id === nodeId);
+    if (!node) throw new Error('节点不存在');
+    const removed = new Set(pageIds);
+    node.pages = node.pages.filter((pageId) => !removed.has(pageId));
+    node.updatedAt = now();
+    await saveNodes(nodes);
+    return publicState();
+  },
+
+  reorderPages: async (nodeId: string, pageIds: string[]) => {
+    const nodes = await readNodes();
+    const node = nodes.find((item) => item.id === nodeId);
+    if (!node) throw new Error('节点不存在');
+    if (
+      pageIds.length !== node.pages.length ||
+      new Set(pageIds).size !== pageIds.length ||
+      pageIds.some((pageId) => !node.pages.includes(pageId))
+    ) {
+      throw new Error('排序结果不完整，请刷新后重试');
+    }
+    node.pages = pageIds;
+    node.updatedAt = now();
+    await saveNodes(nodes);
+    return publicState();
+  },
+
+  exportPdf: async (payload: {
+    scope: PdfExportScope;
+    nodeId?: string;
+    pageIds?: string[];
+    title?: string;
+  }) => {
+    const nodes = await readNodes();
+    let pageIds: string[] = [];
+    if (payload.scope === 'selection') {
+      pageIds = payload.pageIds ? [...payload.pageIds] : [];
+    } else if (payload.nodeId) {
+      const node = nodes.find((item) => item.id === payload.nodeId);
+      if (!node) throw new Error('找不到要导出的根节点');
+      pageIds =
+        payload.scope === 'branch' ? collectBranchPages(nodes, node.id) : [...node.pages];
+    }
+    if (!pageIds.length) throw new Error('当前选择还没有可导出的页面');
+
+    const documents = await readAll<StoredDocument>(STORE_DOCS);
+    const byId = new Map(documents.map((document) => [document.id, document]));
+    const output = await PDFDocument.create();
+    const sources = new Map<string, PDFDocument | null>();
+    for (const pageId of pageIds) {
+      const parsed = parsePageId(pageId);
+      if (!parsed) continue;
+      let source = sources.get(parsed.documentId);
+      if (source === undefined) {
+        const document = byId.get(parsed.documentId);
+        source = document
+          ? await PDFDocument.load(document.buffer, {
+              ignoreEncryption: true,
+              updateMetadata: false
+            })
+          : null;
+        sources.set(parsed.documentId, source);
+      }
+      if (!source) continue;
+      const index = parsed.pageNumber - 1;
+      if (index < 0 || index >= source.getPageCount()) continue;
+      const [copied] = await output.copyPages(source, [index]);
+      output.addPage(copied);
+    }
+    if (!output.getPageCount()) throw new Error('没有找到可读取的页面，请重新导入 PDF');
+    const node = nodes.find((item) => item.id === payload.nodeId);
+    const label =
+      payload.title?.trim() ||
+      (payload.scope === 'selection' ? '页面选集' : node?.title || '知识树导出');
+    const fileName = `${
+      label.replace(/[^\p{L}\p{N}\-_\s]/gu, '').trim() || '知识树导出'
+    }-${new Date().toISOString().slice(0, 10)}.pdf`;
+    output.setProducer('PDF Knowledge Atlas');
+    output.setCreationDate(new Date());
+    const bytes = await output.save();
+    return {
+      blob: new Blob([bytes as BlobPart], { type: 'application/pdf' }),
+      fileName,
+      pageCount: output.getPageCount()
+    };
+  }
+};
