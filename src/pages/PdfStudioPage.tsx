@@ -41,6 +41,11 @@ import {
 } from 'lucide-react';
 import { PdfPageCanvas } from '../components/pdf/PdfPageCanvas';
 import { Button, IconButton, Modal } from '../components/ui';
+import {
+  fitsUnderParent,
+  nodeLevel,
+  MAX_TREE_LEVEL
+} from '../lib/pdfClassificationSeed';
 import { pdfStudioApi } from '../lib/pdfStudioApi';
 import type {
   PdfDocumentPage,
@@ -225,7 +230,7 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
       setStudio(next);
       setWorkspaceName(next.workspaceName);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'PDF 知识树加载失败');
+      setLoadError(error instanceof Error ? error.message : '分类树加载失败');
     } finally {
       setLoading(false);
     }
@@ -361,6 +366,10 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
 
   const openCreateNode = (parentId: string | null) => {
     const parent = parentId ? studio?.nodes.find((node) => node.id === parentId) : null;
+    if (parentId && studio && nodeLevel(studio.nodes, parentId) >= MAX_TREE_LEVEL) {
+      setToast({ kind: 'error', text: '分类树最多四级，这一层不能再加子节点' });
+      return;
+    }
     setNodeDraft({
       mode: 'create',
       parentId,
@@ -388,6 +397,14 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
     const title = nodeDraft.title.trim();
     if (!title) {
       setNodeDraftError('节点名称不能为空');
+      return;
+    }
+    if (
+      studio &&
+      nodeDraft.parentId &&
+      !fitsUnderParent(studio.nodes, nodeDraft.nodeId ?? null, nodeDraft.parentId)
+    ) {
+      setNodeDraftError('分类树最多四级，换个上级或先调整子树层级');
       return;
     }
     setNodeSaving(true);
@@ -677,6 +694,10 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
       setToast({ kind: 'error', text: '不能把节点移到它自己的子节点下面' });
       return;
     }
+    if (!fitsUnderParent(studio.nodes, nodeId, parentId)) {
+      setToast({ kind: 'error', text: '分类树最多四级，这次移动会让层级超限' });
+      return;
+    }
     setBusy('调整分类树');
     try {
       const siblings = studio.nodes.filter(
@@ -771,7 +792,6 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
       <div key={node.id} className="pdf-tree-branch" role="treeitem" aria-expanded={isExpanded}>
         <div
           className={`pdf-tree-row ${isSelected ? 'is-selected' : ''} ${isDrop ? 'is-drop' : ''}`}
-          style={{ paddingLeft: `${8 + depth * 15}px` }}
           onDragOver={(event) => {
             if (event.dataTransfer.types.includes(NODE_DRAG_TYPE)) {
               if (dragNodeId && dragNodeId !== node.id && !isNodeDescendant(studio?.nodes ?? [], dragNodeId, node.id)) {
@@ -847,14 +867,16 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
             </span>
             <span className="pdf-tree-count">{node.pages.length}</span>
           </button>
-          <button
-            className="pdf-tree-add"
-            title="新增子节点"
-            aria-label={`在${node.title}下新增子节点`}
-            onClick={() => openCreateNode(node.id)}
-          >
-            <Plus size={13} />
-          </button>
+          {depth + 1 < MAX_TREE_LEVEL && (
+            <button
+              className="pdf-tree-add"
+              title="新增子节点"
+              aria-label={`在${node.title}下新增子节点`}
+              onClick={() => openCreateNode(node.id)}
+            >
+              <Plus size={13} />
+            </button>
+          )}
         </div>
         {children.length > 0 && isExpanded && (
           <div role="group">
@@ -869,7 +891,7 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
     return (
       <div className={`page pdf-studio-page pdf-studio-loading theme-${theme}`} data-pdf-theme={theme}>
         <LoaderCircle size={22} className="spin" />
-        <span>正在打开 PDF 知识树</span>
+        <span>正在打开 AtomPDF</span>
       </div>
     );
   }
@@ -878,7 +900,7 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
     return (
       <div className={`page pdf-studio-page pdf-studio-loading theme-${theme}`} data-pdf-theme={theme}>
         <AlertCircle size={22} />
-        <strong>{loadError || 'PDF 知识树不可用'}</strong>
+        <strong>{loadError || 'AtomPDF 不可用'}</strong>
         <Button variant="secondary" size="sm" onClick={() => void refresh()}>
           重新加载
         </Button>
@@ -892,18 +914,20 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
     .map((id) => pageIndex.get(id))
     .filter((hit): hit is PageHit => Boolean(hit));
   const parentOptions = studio.nodes.filter((node) => {
-    if (nodeDraft?.mode !== 'edit' || !nodeDraft.nodeId) return true;
-    return (
-      node.id !== nodeDraft.nodeId &&
-      !isNodeDescendant(studio.nodes, nodeDraft.nodeId, node.id)
-    );
+    if (!nodeDraft) return false;
+    if (nodeDraft.mode === 'create') {
+      return nodeLevel(studio.nodes, node.id) < MAX_TREE_LEVEL;
+    }
+    if (!nodeDraft.nodeId || node.id === nodeDraft.nodeId) return false;
+    if (isNodeDescendant(studio.nodes, nodeDraft.nodeId, node.id)) return false;
+    return fitsUnderParent(studio.nodes, nodeDraft.nodeId, node.id);
   });
 
   return (
     <div className={`page pdf-studio-page theme-${theme}`} data-pdf-theme={theme}>
       <header className="pdf-studio-head">
         <div className="pdf-studio-title">
-          <span className="eyebrow">PDF KNOWLEDGE ATLAS</span>
+          <span className="eyebrow">PDF CLASSIFICATION ATLAS</span>
           <div className="pdf-title-line">
             {workspaceEditing ? (
               <>
@@ -1035,20 +1059,9 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
           <div className="pdf-pane-head">
             <div>
               <span className="eyebrow">STRUCTURE</span>
-              <strong>知识树</strong>
+              <strong>分类树</strong>
             </div>
             <div className="pdf-pane-actions">
-              <IconButton
-                label="收起目录到抽屉"
-                className="pdf-drawer-toggle"
-                onClick={() => {
-                  setTreeDrawer('drawer');
-                  setDrawerOpen(false);
-                }}
-                disabled={Boolean(busy)}
-              >
-                <PanelLeftClose size={15} />
-              </IconButton>
               <IconButton
                 label="新增根节点"
                 onClick={() => openCreateNode(null)}
@@ -1073,7 +1086,7 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
               </IconButton>
             </div>
           </div>
-          <div className="pdf-tree-scroll" role="tree" aria-label="PDF 知识树">
+          <div className="pdf-tree-scroll" role="tree" aria-label="PDF 分类树">
             {rootNodes.length ? (
               rootNodes.map((node) => renderTreeNode(node, 0))
             ) : (
@@ -1084,13 +1097,24 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
             )}
           </div>
           <div className="pdf-tree-foot">
-            <div>
+            <div className="pdf-tree-foot-info">
               <span>当前节点</span>
               <strong>{selectedNode?.title ?? '未选择'}</strong>
             </div>
             <span className="pdf-tree-foot-count">
               {selectedNode?.pages.length ?? 0} 页
             </span>
+            <IconButton
+              label="收起目录到抽屉"
+              className="pdf-drawer-toggle"
+              onClick={() => {
+                setTreeDrawer('drawer');
+                setDrawerOpen(false);
+              }}
+              disabled={Boolean(busy)}
+            >
+              <PanelLeftClose size={15} />
+            </IconButton>
           </div>
         </section>
 
@@ -1553,11 +1577,11 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
 
       <Modal
         open={Boolean(nodeDraft)}
-        title={nodeDraft?.mode === 'create' ? '新增知识节点' : '编辑知识节点'}
+        title={nodeDraft?.mode === 'create' ? '新增分类节点' : '编辑分类节点'}
         description={
           nodeDraft?.mode === 'create'
-            ? '新节点会出现在所选上级之下。'
-            : '可修改名称、说明、层级和标记色。'
+            ? '新节点会出现在所选上级之下，分类树最多四级。'
+            : '可修改名称、说明、层级和标记色，最多四级。'
         }
         onClose={() => !nodeSaving && setNodeDraft(null)}
       >

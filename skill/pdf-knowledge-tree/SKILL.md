@@ -1,16 +1,16 @@
 ﻿---
 name: pdf-knowledge-tree
-description: 操作本机「PDF 知识树」系统——把 PDF 拆成单页、搭出任意层级的知识树、把挑好的页面组合成主题并导出成新书。当用户要整理一批 PDF、搭建知识体系/知识树、把 PDF 按主题归类、查某个概念散落在哪几页、把若干页组合成一本小册子或一个主题时使用；也用于查看知识树现状、调整节点层级与页序、导出成书。触发词：PDF 知识树、拆 PDF、搭知识树、整理 PDF、归类 PDF、组合成书、主题库、知识地图。
+description: 操作本机「AtomPDF 原子课件」系统——把 PDF 拆成单页、搭出最多四级的分类树、把挑好的页面组合成主题并导出成新书。当用户要整理一批 PDF、搭建分类体系/分类树、把 PDF 按主题归类、查某个概念散落在哪几页、把若干页组合成一本小册子或一个主题时使用；也用于查看分类树现状、调整节点层级与页序、导出成书。触发词：AtomPDF、PDF 分类树、拆 PDF、搭分类树、整理 PDF、归类 PDF、组合成书、主题库、分类地图。
 ---
 
-# PDF 知识树
+# AtomPDF 原子课件
 
-本地运行的 PDF 拆页与重组工具：把 PDF 拆成单页，放进任意层级的知识树，再按自己的顺序组合成新的 PDF。
+本地运行的 PDF 拆页与重组工具：把 PDF 拆成单页，放进最多四级的分类树，再按自己的顺序组合成新的 PDF。
 
 - 应用目录：`D:\MT-ATOM\AS-开发类\Agent+微课\PDF知识树`
 - 界面：http://127.0.0.1:5174 （人在界面上操作时用这个地址）
 - 接口：http://127.0.0.1:8890/api/pdf-studio
-- 数据：`PDF知识树\data\pdf-library`（PDF 原文件与树结构都只存在本机）
+- 数据：`PDF知识树\data\pdf-library`（PDF 原文件与分类树都只存在本机）
 - 导出默认落盘：`PDF知识树\data\exports`
 
 MCP 服务（`mcp\server.mjs`）会在需要时自动拉起应用，无需手动启动。
@@ -19,11 +19,11 @@ MCP 服务（`mcp\server.mjs`）会在需要时自动拉起应用，无需手动
 
 | 工具 | 用途 |
 | --- | --- |
-| `pdf_overview` | 总览：文档、树结构、主题、统计。任何操作前先看它 |
+| `pdf_overview` | 总览：文档、四级分类树、主题、统计。任何操作前先看它 |
 | `pdf_import` | 导入本机 PDF（绝对路径，可批量），按页拆开 |
 | `pdf_list_pages` | 列页面，可按文档过滤、按关键词过滤 |
 | `pdf_search` | 在所有页面文字里搜索，给出命中页与片段 |
-| `pdf_create_node` | 新建节点（父节点可省略=根级） |
+| `pdf_create_node` | 新建节点（父节点可省略=根级，最多四级） |
 | `pdf_update_node` | 改名 / 换上级 / 改说明 / 改标记色 |
 | `pdf_delete_node` | 删节点及其子节点（页面不删） |
 | `pdf_assign_pages` | 页面加入节点或移出节点（同一页可属于多个节点） |
@@ -51,13 +51,14 @@ MCP 服务（`mcp\server.mjs`）会在需要时自动拉起应用，无需手动
 
 ### 三、检查与整理
 
-- `pdf_overview` 看树的骨架；缺层级用 `pdf_create_node` 补；归错位用 `pdf_update_node` 改 `parentId`。
+- `pdf_overview` 看分类树的骨架；缺层级用 `pdf_create_node` 补；归错位用 `pdf_update_node` 改 `parentId`。
 - 页序不对用 `pdf_reorder_pages`，注意要传该节点**完整**的页序，不是增量。
 
 ## 注意
 
 - 页面 id 形如 `pdf-xxxxx:3`，只有 `pdf_list_pages` / `pdf_search` / `pdf_overview` 会给，不要自己拼。
-- 节点 id 形如 `pdf-node-xxxxx`，`pdf_overview` 的树里带 `path`（如 `AI / 认知 / 注意力`），按 path 认人比按 id 稳。
-- 删除只影响树上的归位，不会删掉 PDF 原文件和页面内容。
+- 节点 id 形如 `pdf-node-xxxxx`，`pdf_overview` 的树里带 `path`（如 `AI / 认知与学习 / 学习科学 / 认知负荷`），按 path 认人比按 id 稳。
+- 分类树最多四级：一级是领域（如 `AI`），二级是主线，三级是模块，四级是最细的知识点。
+- 删除只影响分类树里的归位，不会删掉 PDF 原文件和页面内容。
 - 导出文件默认写到 `data\exports`，也可以给 `pdf_export` 传 `outputPath` 指定位置。
 - 用户要的是「整理」而不是「搬家」时，默认不要删除任何东西；先报告要动什么，再动手。

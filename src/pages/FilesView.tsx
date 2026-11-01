@@ -139,7 +139,7 @@ export function FilesView() {
   };
 
   const removeDocument = async (id: string, name: string) => {
-    if (!window.confirm(`删除「${name}」？相关页面会从知识树里移除，原文件不可恢复。`)) return;
+    if (!window.confirm(`删除「${name}」？相关页面会从分类树里移除，原文件不可恢复。`)) return;
     setBusy('删除文件');
     try {
       setStudio(await pdfStudioApi.deleteDocument(id));
@@ -348,7 +348,7 @@ export function FilesView() {
             <span>页数</span>
             <span>大小</span>
             <span>入库</span>
-            <span>树中引用</span>
+            <span>分类引用</span>
             <span />
           </div>
           {documents.map((document) => (

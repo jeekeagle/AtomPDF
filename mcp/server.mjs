@@ -1,7 +1,7 @@
 ﻿/**
- * PDF 知识树 · MCP 服务
+ * AtomPDF · MCP 服务
  *
- * 让 Codex 直接操作本地知识树：导入 PDF、建节点、归页、组合主题、导出成书。
+ * 让 Codex 直接操作本地分类树：导入 PDF、建节点、归页、组合主题、导出成书。
  * 通过本机接口 (默认 http://127.0.0.1:8890/api/pdf-studio) 与应用通信。
  */
 import fs from 'node:fs';
@@ -59,7 +59,7 @@ async function startAppIfNeeded() {
 async function api(pathname, init = {}) {
   if (!(await startAppIfNeeded())) {
     throw new Error(
-      `无法连接 PDF 知识树服务（${API_BASE}）。请先双击「${path.join(
+      `无法连接 AtomPDF 服务（${API_BASE}）。请先双击「${path.join(
         APP_ROOT,
         '启动.cmd'
       )}」启动。`
@@ -86,13 +86,13 @@ const tools = [
   {
     name: 'pdf_overview',
     description:
-      '查看 PDF 知识树的总览：工作区名称、已导入的文档、各级节点（树形）、已组合的主题和统计数字。开始任何操作前先调用它。',
+      '查看 AtomPDF 的总览：工作区名称、已导入的文档、四级分类树、已组合的主题和统计数字。开始任何操作前先调用它。',
     inputSchema: { type: 'object', properties: {} }
   },
   {
     name: 'pdf_import',
     description:
-      '把本地 PDF 文件导入知识树，按文件名和页码拆成单页。传入本机绝对路径的数组，可一次导入多个。',
+      '把本地 PDF 文件导入分类树，按文件名和页码拆成单页。传入本机绝对路径的数组，可一次导入多个。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -134,7 +134,7 @@ const tools = [
   {
     name: 'pdf_create_node',
     description:
-      '在知识树里新建一个节点（可无限层级）。父节点不填就是根节点。返回新节点 id。',
+      '在分类树里新建一个节点（最多四级）。父节点不填就是根节点。返回新节点 id。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -167,7 +167,7 @@ const tools = [
   },
   {
     name: 'pdf_delete_node',
-    description: '删除节点及其全部子节点。节点里的页面不会被删除，只是从树上移除。',
+    description: '删除节点及其全部子节点。节点里的页面不会被删除，只是从分类树里移除。',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: '节点 id' } },
@@ -529,7 +529,7 @@ const handlers = {
   async pdf_export({ scope, nodeId, themeId, pageIds, title, outputPath }) {
     const state = await api('');
     let body = { scope };
-    let fallbackTitle = '知识树导出';
+    let fallbackTitle = '分类树导出';
 
     if (scope === 'theme') {
       const theme = state.themes.find((item) => item.id === themeId);

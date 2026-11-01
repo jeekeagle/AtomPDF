@@ -33,10 +33,10 @@ export function AccessGate() {
           <span />
           <span />
         </span>
-        <span className="eyebrow">PDF KNOWLEDGE ATLAS</span>
-        <h1>PDF 知识树</h1>
+        <span className="eyebrow">ATOMIC COURSEWARE</span>
+        <h1>AtomPDF</h1>
         <p className="access-lead">
-          {gateEnabled ? '这是一个私人书架，请输入密码继续。' : '访问门尚未设置密码。'}
+          {gateEnabled ? '这是一个私人课件库，请输入密码继续。' : '访问门尚未设置密码。'}
         </p>
         <label className="access-field">
           <span>访问密码</span>

@@ -13,6 +13,14 @@ import type {
   PdfThemeRecord,
   PdfTreeNode
 } from '../src/types';
+import {
+  fitsUnderParent,
+  isLegacySeedTree,
+  migrateLegacyTree,
+  nodeLevel,
+  seedNodes,
+  MAX_TREE_LEVEL
+} from '../src/lib/pdfClassificationSeed';
 import { dataDir } from './paths';
 
 const libraryRoot = path.join(dataDir, 'pdf-library');
@@ -38,46 +46,10 @@ const ensureFolders = () => {
   fs.mkdirSync(filesRoot, { recursive: true });
 };
 
-const seedNodes = (): PdfTreeNode[] => {
-  const createdAt = now();
-  const rootId = 'pdf-root-ai';
-  const sections = [
-    ['pdf-node-cognition', '认知', 'brick'],
-    ['pdf-node-knowledge', '知识', 'teal'],
-    ['pdf-node-technology', '技术', 'gold'],
-    ['pdf-node-practice', '实践', 'ink'],
-    ['pdf-node-industry', '行业', 'brick']
-  ] as const;
-  return [
-    {
-      id: rootId,
-      parentId: null,
-      title: 'AI',
-      note: '领域根节点',
-      tone: 'ink',
-      order: 0,
-      pages: [],
-      createdAt,
-      updatedAt: createdAt
-    },
-    ...sections.map(([id, title, tone], index) => ({
-      id,
-      parentId: rootId,
-      title,
-      note: '',
-      tone,
-      order: index,
-      pages: [],
-      createdAt,
-      updatedAt: createdAt
-    }))
-  ];
-};
-
 const seedState = (): StoredState => ({
-  workspaceName: 'AI 知识树',
+  workspaceName: 'AI 分类树',
   documents: [],
-  nodes: seedNodes(),
+  nodes: seedNodes(now()),
   themes: [],
   categories: seedCategories(),
   courses: [],
@@ -107,7 +79,11 @@ const normalizeState = (raw: Partial<StoredState> | null): StoredState => {
           Boolean(item?.id && item?.title && typeof item.order === 'number')
       )
     : [];
-  const nodes = storedNodes.length ? storedNodes : fallback.nodes;
+  const nodes = storedNodes.length
+    ? isLegacySeedTree(storedNodes)
+      ? migrateLegacyTree(storedNodes, now())
+      : storedNodes
+    : fallback.nodes;
   const themes = Array.isArray(raw?.themes)
     ? raw.themes.filter(
         (item): item is PdfThemeRecord =>
@@ -127,7 +103,10 @@ const normalizeState = (raw: Partial<StoredState> | null): StoredState => {
       )
     : [];
   return {
-    workspaceName: raw?.workspaceName?.trim() || fallback.workspaceName,
+    workspaceName:
+      raw?.workspaceName?.trim() && raw.workspaceName.trim() !== 'AI 知识树'
+        ? raw.workspaceName.trim()
+        : fallback.workspaceName,
     documents,
     nodes,
     themes,
@@ -145,7 +124,13 @@ const readState = (): StoredState => {
     return seeded;
   }
   try {
-    return normalizeState(JSON.parse(fs.readFileSync(libraryPath, 'utf8')) as StoredState);
+    const raw = JSON.parse(fs.readFileSync(libraryPath, 'utf8')) as StoredState;
+    const state = normalizeState(raw);
+    const needsUpgrade =
+      (Array.isArray(raw?.nodes) && isLegacySeedTree(raw.nodes)) ||
+      raw?.workspaceName === 'AI 知识树';
+    if (needsUpgrade) writeState(state);
+    return state;
   } catch {
     const seeded = seedState();
     writeState(seeded);
@@ -483,6 +468,10 @@ export function mountPdfStudio(app: Express) {
       res.status(400).json({ error: '父节点不存在' });
       return;
     }
+    if (parentId && nodeLevel(state.nodes, parentId) >= MAX_TREE_LEVEL) {
+      res.status(400).json({ error: '分类树最多四级，这一层不能再加子节点' });
+      return;
+    }
     const siblings = state.nodes.filter((node) => node.parentId === parentId);
     const tone = tones.includes(req.body?.tone) ? (req.body.tone as PdfNodeTone) : 'teal';
     const createdAt = now();
@@ -527,6 +516,10 @@ export function mountPdfStudio(app: Express) {
       }
       if (nextParent && isDescendant(state.nodes, node.id, nextParent)) {
         res.status(400).json({ error: '不能把节点移动到它的子节点下' });
+        return;
+      }
+      if (nextParent && !fitsUnderParent(state.nodes, node.id, nextParent)) {
+        res.status(400).json({ error: '分类树最多四级，这次移动会让层级超限' });
         return;
       }
       const previousParentId = node.parentId;

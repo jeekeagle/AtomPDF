@@ -12,6 +12,14 @@ import type {
   PdfThemeRecord,
   PdfTreeNode
 } from '../types';
+import {
+  fitsUnderParent,
+  isLegacySeedTree,
+  migrateLegacyTree,
+  nodeLevel,
+  seedNodes,
+  MAX_TREE_LEVEL
+} from './pdfClassificationSeed';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -105,57 +113,19 @@ const seedCategories = (): PdfCategory[] => {
   ];
 };
 
-const seedNodes = (): PdfTreeNode[] => {
-  const createdAt = now();
-  const rootId = 'pdf-root-ai';
-  const sections: Array<[string, string, PdfNodeTone]> = [
-    ['pdf-node-cognition', '认知', 'brick'],
-    ['pdf-node-knowledge', '知识', 'teal'],
-    ['pdf-node-technology', '技术', 'gold'],
-    ['pdf-node-practice', '实践', 'ink'],
-    ['pdf-node-industry', '行业', 'brick']
-  ];
-  return [
-    {
-      id: rootId,
-      parentId: null,
-      title: 'AI',
-      note: '领域根节点',
-      tone: 'ink',
-      order: 0,
-      pages: [],
-      createdAt,
-      updatedAt: createdAt
-    },
-    ...sections.map(([id, title, tone], index) => ({
-      id,
-      parentId: rootId,
-      title,
-      note: '',
-      tone,
-      order: index,
-      pages: [],
-      createdAt,
-      updatedAt: createdAt
-    }))
-  ];
-};
-
 const publicState = async (): Promise<PdfStudioState> => {
   const [documents, nodes, meta, themes, categories, courses] = await Promise.all([
     readAll<StoredDocument>(STORE_DOCS),
-    readAll<PdfTreeNode>(STORE_TREE),
+    readTree(),
     readAll<MetaRecord>(STORE_META),
     readAll<PdfThemeRecord>(STORE_THEMES),
     readAll<PdfCategory>(STORE_CATEGORIES),
     readAll<PdfCourse>(STORE_COURSES)
   ]);
-  const tree = nodes.length ? nodes : seedNodes();
-  if (!nodes.length) {
-    await Promise.all(tree.map((node) => putRecord(STORE_TREE, node)));
-  }
+  const tree = nodes;
+  const storedWorkspace = meta.find((item) => item.key === 'workspace')?.value?.trim();
   const workspaceName =
-    meta.find((item) => item.key === 'workspace')?.value?.trim() || 'AI 知识树';
+    storedWorkspace && storedWorkspace !== 'AI 知识树' ? storedWorkspace : 'AI 分类树';
   const categoryList = categories.length ? categories : seedCategories();
   if (!categories.length) {
     await Promise.all(categoryList.map((item) => putRecord(STORE_CATEGORIES, item)));
@@ -281,13 +251,33 @@ const blobUrlFor = async (id: string) => {
   return url;
 };
 
-const readNodes = async () => {
-  const nodes = await readAll<PdfTreeNode>(STORE_TREE);
-  if (nodes.length) return nodes;
-  const seeded = seedNodes();
-  await saveNodes(seeded);
-  return seeded;
+const replaceNodes = async (nodes: PdfTreeNode[]) => {
+  const existing = await readAll<PdfTreeNode>(STORE_TREE);
+  const keep = new Set(nodes.map((node) => node.id));
+  await Promise.all(
+    existing
+      .filter((node) => !keep.has(node.id))
+      .map((node) => deleteRecord(STORE_TREE, node.id))
+  );
+  await saveNodes(nodes);
 };
+
+const readTree = async () => {
+  const nodes = await readAll<PdfTreeNode>(STORE_TREE);
+  if (!nodes.length) {
+    const seeded = seedNodes();
+    await saveNodes(seeded);
+    return seeded;
+  }
+  if (isLegacySeedTree(nodes)) {
+    const migrated = migrateLegacyTree(nodes);
+    await replaceNodes(migrated);
+    return migrated;
+  }
+  return nodes;
+};
+
+const readNodes = () => readTree();
 
 export const browserApi = {
   state: () => publicState(),
@@ -386,6 +376,9 @@ export const browserApi = {
     tone?: PdfNodeTone;
   }) => {
     const nodes = await readNodes();
+    if (payload.parentId && nodeLevel(nodes, payload.parentId) >= MAX_TREE_LEVEL) {
+      throw new Error('分类树最多四级，这一层不能再加子节点');
+    }
     const siblings = nodes.filter((node) => node.parentId === payload.parentId);
     const createdAt = now();
     const node: PdfTreeNode = {
@@ -427,6 +420,9 @@ export const browserApi = {
       if (nextParent === node.id) throw new Error('节点不能成为自己的上级');
       if (nextParent && isDescendant(nodes, node.id, nextParent)) {
         throw new Error('不能把节点移动到它的子节点下');
+      }
+      if (nextParent && !fitsUnderParent(nodes, node.id, nextParent)) {
+        throw new Error('分类树最多四级，这次移动会让层级超限');
       }
       if (nextParent !== node.parentId) {
         const siblings = nodes.filter(
@@ -728,9 +724,9 @@ export const browserApi = {
     const label =
       payload.title?.trim() ||
       course?.title ||
-      (payload.scope === 'selection' ? '页面选集' : node?.title || '知识树导出');
+      (payload.scope === 'selection' ? '页面选集' : node?.title || '分类树导出');
     const fileName = `${
-      label.replace(/[^\p{L}\p{N}\-_\s]/gu, '').trim() || '知识树导出'
+      label.replace(/[^\p{L}\p{N}\-_\s]/gu, '').trim() || '分类树导出'
     }-${new Date().toISOString().slice(0, 10)}.pdf`;
     output.setProducer('PDF Knowledge Atlas');
     output.setCreationDate(new Date());

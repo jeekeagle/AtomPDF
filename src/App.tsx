@@ -38,8 +38,8 @@ export default function App() {
               <span />
             </span>
             <span className="brand-copy">
-              <strong>PDF 知识树</strong>
-              <small>KNOWLEDGE ATLAS</small>
+              <strong>AtomPDF</strong>
+              <small>原子课件 · 分类树</small>
             </span>
           </div>
           <nav className="app-switch" role="tablist" aria-label="视图切换">
@@ -56,7 +56,7 @@ export default function App() {
               </button>
             ))}
           </nav>
-          <span className="topbar-note">本地运行 · 资料与书架只存在这台机器</span>
+          <span className="topbar-note">本地运行 · 资料与分类只存在这台机器</span>
         </header>
         <main className="app-main">
           {view === 'workbench' && (
