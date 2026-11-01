@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import { BookMarked, BookOpen, Files, LayoutGrid } from 'lucide-react';
 import { AccessGate } from './components/AccessGate';
+import { BrandMark } from './components/BrandMark';
 import { gateEnabled, isUnlocked } from './lib/accessGate';
 import { CourseBuilder } from './pages/CourseBuilder';
 import { FilesView } from './pages/FilesView';
@@ -34,8 +35,7 @@ export default function App() {
         <header className="topbar">
           <div className="brand-lockup">
             <span className="brand-mark" aria-hidden="true">
-              <span />
-              <span />
+              <BrandMark size={29} />
             </span>
             <span className="brand-copy">
               <strong>AtomPDF</strong>

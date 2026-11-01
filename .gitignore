@@ -1,4 +1,4 @@
-﻿node_modules
+node_modules
 dist
 dist-browser
 .vite
@@ -6,3 +6,4 @@ data
 *.log
 .env.local
 .DS_Store
+design-demos

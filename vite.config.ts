@@ -14,7 +14,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5174,
       watch: {
-        ignored: ['**/data/**']
+        // Brand kit and design archives are not app sources and can be
+        // locked by other tools while they are being regenerated.
+        ignored: ['**/data/**', '**/brand/**', '**/design-demos/**']
       },
       proxy: {
         '/api': `http://127.0.0.1:${process.env.PORT || 8890}`

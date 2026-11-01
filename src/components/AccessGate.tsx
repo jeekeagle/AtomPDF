@@ -1,6 +1,7 @@
 ﻿import { useState, type FormEvent } from 'react';
 import { AlertCircle, ArrowRight, KeyRound, LoaderCircle } from 'lucide-react';
 import { gateEnabled, unlock, verifyPassword } from '../lib/accessGate';
+import { BrandMark } from './BrandMark';
 
 export function AccessGate() {
   const [password, setPassword] = useState('');
@@ -30,8 +31,7 @@ export function AccessGate() {
     <div className="access-gate">
       <form className="access-card" onSubmit={submit}>
         <span className="access-mark" aria-hidden="true">
-          <span />
-          <span />
+          <BrandMark size={46} />
         </span>
         <span className="eyebrow">ATOMIC COURSEWARE</span>
         <h1>AtomPDF</h1>
