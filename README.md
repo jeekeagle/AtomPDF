@@ -9,6 +9,19 @@ https://jeekeagle.github.io/AtomPDF/
 这是纯浏览器版：不需要服务器，PDF 只在你自己的浏览器里解析和保存（存在浏览器的 IndexedDB 里），
 关掉页面再打开，书架还在。任何电脑打开这个网址都能用，但各自的浏览器各存各的。
 
+站点有一道访问密码：打开网址先要输入密码才能进入工作台。密码以 SHA-256 哈希的形式存在仓库密钥
+`ACCESS_PASSWORD_HASH` 里，明文不进入代码仓库。改密码：
+
+```powershell
+# 改成自己的密码（哈希后写入仓库密钥）
+node -e "console.log(require('crypto').createHash('sha256').update('你的新密码').digest('hex'))"
+gh secret set ACCESS_PASSWORD_HASH --body "<上面算出的哈希>"
+node scripts/publish-to-github.mjs   # 重新构建并发布
+```
+
+注意：静态托管没有服务端，这道门是在浏览器里校验的，能挡住随手点开链接的人，但挡不住懂技术的人
+（他们可以直接读网页源码）。要真正拦住所有人，需要在站点前面加一层带密钥校验的服务端网关。
+
 想要「文件存在自己电脑上、顺便还能用 Codex 操作」，用本地版（见下方），它带一个 Node 后端。
 
 ## 两个主要动作

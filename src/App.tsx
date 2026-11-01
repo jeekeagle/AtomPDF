@@ -1,10 +1,21 @@
-﻿import { useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { BookMarked, LayoutGrid } from 'lucide-react';
+import { AccessGate } from './components/AccessGate';
+import { gateEnabled, isUnlocked } from './lib/accessGate';
 import { PdfStudioPage } from './pages/PdfStudioPage';
 import { ThemeLibraryPage } from './pages/ThemeLibraryPage';
 
 export default function App() {
   const [view, setView] = useState<'workbench' | 'themes'>('workbench');
+  const [granted, setGranted] = useState(!gateEnabled || isUnlocked());
+
+  useEffect(() => {
+    setGranted(!gateEnabled || isUnlocked());
+  }, []);
+
+  if (!granted) {
+    return <AccessGate />;
+  }
 
   return (
     <div className="app-frame">

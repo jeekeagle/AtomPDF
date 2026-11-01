@@ -26,11 +26,22 @@ const headers = {
 };
 
 const call = async (method, url, body) => {
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
+  let response;
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      response = await fetch(url, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body)
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 1200 * (attempt + 1)));
+    }
+  }
+  if (!response) throw lastError || new Error(`请求失败：${url}`);
   const text = await response.text();
   if (!response.ok) throw new Error(`${method} ${url} -> ${response.status} ${text.slice(0, 200)}`);
   return text ? JSON.parse(text) : null;

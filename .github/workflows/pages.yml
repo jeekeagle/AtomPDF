@@ -25,7 +25,17 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Check access secret
+        env:
+          ACCESS_HASH: ${{ secrets.ACCESS_PASSWORD_HASH }}
+        run: |
+          if [ -z "$ACCESS_HASH" ]; then
+            echo "::error::仓库缺少密钥 ACCESS_PASSWORD_HASH，站点会以无密码状态发布。请先创建该密钥。"
+            exit 1
+          fi
       - name: Build static site
+        env:
+          VITE_ACCESS_HASH: ${{ secrets.ACCESS_PASSWORD_HASH }}
         run: npm run build:browser
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

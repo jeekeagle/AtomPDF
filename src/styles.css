@@ -1664,3 +1664,140 @@ img, video { display: block; max-width: 100%; }
   .pdf-theme-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
   .pdf-theme-card-cover { height: 190px; }
 }
+
+/* ---------- Access gate ---------- */
+
+.access-gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent-soft) 70%, transparent), transparent 46%),
+    var(--bg-app);
+}
+
+.access-card {
+  width: min(392px, 100%);
+  padding: 30px 30px 26px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: atlas-enter 0.24s var(--ease) both;
+}
+
+.access-mark {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 6px;
+  border-radius: 9px;
+  background: var(--solid);
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  padding-bottom: 8px;
+}
+
+.access-mark span {
+  width: 4px;
+  height: 13px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
+}
+
+.access-mark span:last-child {
+  height: 18px;
+  background: var(--accent);
+}
+
+.access-card h1 {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 400;
+  color: var(--text-1);
+}
+
+.access-lead {
+  font-size: 12.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+  margin-bottom: 6px;
+}
+
+.access-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.access-input {
+  height: 38px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.access-input:focus-within {
+  border-color: var(--accent-line);
+  background: var(--bg-panel);
+}
+
+.access-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  color: var(--text-1);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+
+.access-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.access-submit {
+  height: 38px;
+  margin-top: 4px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  background: var(--solid);
+  color: var(--text-inverse);
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+
+.access-submit:hover:not(:disabled) { background: var(--solid-hover); }
+.access-submit:disabled { opacity: 0.45; }
+
+.access-note {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-3);
+}
