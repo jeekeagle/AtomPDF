@@ -2,8 +2,11 @@
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type {
+  PdfCategory,
+  PdfCourse,
   PdfDocumentRecord,
   PdfExportScope,
+  PdfLesson,
   PdfNodeTone,
   PdfStudioState,
   PdfThemeRecord,
@@ -13,11 +16,13 @@ import type {
 GlobalWorkerOptions.workerSrc = workerUrl;
 
 const DB_NAME = 'pdf-knowledge-atlas';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_DOCS = 'documents';
 const STORE_TREE = 'nodes';
 const STORE_META = 'meta';
 const STORE_THEMES = 'themes';
+const STORE_CATEGORIES = 'categories';
+const STORE_COURSES = 'courses';
 
 interface StoredDocument extends PdfDocumentRecord {
   buffer: ArrayBuffer;
@@ -47,6 +52,12 @@ const openDb = () => {
         }
         if (!db.objectStoreNames.contains(STORE_THEMES)) {
           db.createObjectStore(STORE_THEMES, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(STORE_CATEGORIES)) {
+          db.createObjectStore(STORE_CATEGORIES, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(STORE_COURSES)) {
+          db.createObjectStore(STORE_COURSES, { keyPath: 'id' });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -85,6 +96,15 @@ const now = () => new Date().toISOString();
 const makeId = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
 
+const seedCategories = (): PdfCategory[] => {
+  const createdAt = now();
+  return [
+    { id: 'pdf-cat-handout', name: '讲义', tone: 'teal', order: 0, createdAt },
+    { id: 'pdf-cat-paper', name: '论文', tone: 'gold', order: 1, createdAt },
+    { id: 'pdf-cat-reference', name: '参考', tone: 'ink', order: 2, createdAt }
+  ];
+};
+
 const seedNodes = (): PdfTreeNode[] => {
   const createdAt = now();
   const rootId = 'pdf-root-ai';
@@ -122,11 +142,13 @@ const seedNodes = (): PdfTreeNode[] => {
 };
 
 const publicState = async (): Promise<PdfStudioState> => {
-  const [documents, nodes, meta, themes] = await Promise.all([
+  const [documents, nodes, meta, themes, categories, courses] = await Promise.all([
     readAll<StoredDocument>(STORE_DOCS),
     readAll<PdfTreeNode>(STORE_TREE),
     readAll<MetaRecord>(STORE_META),
-    readAll<PdfThemeRecord>(STORE_THEMES)
+    readAll<PdfThemeRecord>(STORE_THEMES),
+    readAll<PdfCategory>(STORE_CATEGORIES),
+    readAll<PdfCourse>(STORE_COURSES)
   ]);
   const tree = nodes.length ? nodes : seedNodes();
   if (!nodes.length) {
@@ -134,6 +156,10 @@ const publicState = async (): Promise<PdfStudioState> => {
   }
   const workspaceName =
     meta.find((item) => item.key === 'workspace')?.value?.trim() || 'AI 知识树';
+  const categoryList = categories.length ? categories : seedCategories();
+  if (!categories.length) {
+    await Promise.all(categoryList.map((item) => putRecord(STORE_CATEGORIES, item)));
+  }
   const visibleDocuments = documents
     .map((item) => {
       const copy = { ...item };
@@ -148,12 +174,16 @@ const publicState = async (): Promise<PdfStudioState> => {
     documents: visibleDocuments,
     nodes: tree,
     themes,
+    categories: categoryList,
+    courses,
     stats: {
       documents: visibleDocuments.length,
       pages,
       nodes: tree.length,
       placedPages,
-      themes: themes.length
+      themes: themes.length,
+      categories: categoryList.length,
+      courses: courses.length
     },
     updatedAt: now()
   };
@@ -266,6 +296,16 @@ export const browserApi = {
 
   documentDownloadUrl: async (id: string) => blobUrlFor(id),
 
+  downloadDocument: async (id: string) => {
+    const documents = await readAll<StoredDocument>(STORE_DOCS);
+    const document = documents.find((item) => item.id === id);
+    if (!document) throw new Error('找不到这个文件');
+    return {
+      blob: new Blob([document.buffer], { type: 'application/pdf' }),
+      fileName: `${document.name}.pdf`
+    };
+  },
+
   renameWorkspace: async (workspaceName: string) => {
     await putRecord(STORE_META, { key: 'workspace', value: workspaceName });
     return publicState();
@@ -288,6 +328,7 @@ export const browserApi = {
       sizeBytes: buffer.byteLength,
       pageCount: rawPages.length,
       importedAt: now(),
+      categoryId: null,
       pages: rawPages.map((page, index) => {
         const { width, height } = page.getSize();
         const number = index + 1;
@@ -305,11 +346,12 @@ export const browserApi = {
     return publicState();
   },
 
-  renameDocument: async (id: string, name: string) => {
+  renameDocument: async (id: string, name: string, categoryId?: string | null) => {
     const documents = await readAll<StoredDocument>(STORE_DOCS);
     const document = documents.find((item) => item.id === id);
     if (document) {
       document.name = name;
+      if (categoryId !== undefined) document.categoryId = categoryId;
       await putRecord(STORE_DOCS, document);
     }
     return publicState();
@@ -472,6 +514,103 @@ export const browserApi = {
     return publicState();
   },
 
+  createCategory: async (payload: { name: string; tone?: PdfNodeTone }) => {
+    const categories = await readAll<PdfCategory>(STORE_CATEGORIES);
+    const createdAt = now();
+    const category: PdfCategory = {
+      id: makeId('pdf-cat'),
+      name: payload.name.trim().slice(0, 30) || '新分类',
+      tone: payload.tone || 'teal',
+      order: categories.length ? Math.max(...categories.map((item) => item.order)) + 1 : 0,
+      createdAt
+    };
+    await putRecord(STORE_CATEGORIES, category);
+    return { state: await publicState(), category };
+  },
+
+  updateCategory: async (
+    id: string,
+    payload: Partial<{ name: string; tone: PdfNodeTone; order: number }>
+  ) => {
+    const categories = await readAll<PdfCategory>(STORE_CATEGORIES);
+    const category = categories.find((item) => item.id === id);
+    if (!category) throw new Error('分类不存在');
+    if (payload.name) category.name = payload.name.slice(0, 30);
+    if (payload.tone) category.tone = payload.tone;
+    if (typeof payload.order === 'number') category.order = payload.order;
+    await putRecord(STORE_CATEGORIES, category);
+    return publicState();
+  },
+
+  deleteCategory: async (id: string) => {
+    await deleteRecord(STORE_CATEGORIES, id);
+    const documents = await readAll<StoredDocument>(STORE_DOCS);
+    await Promise.all(
+      documents
+        .filter((item) => item.categoryId === id)
+        .map((item) => {
+          const copy = { ...item, categoryId: null };
+          return putRecord(STORE_DOCS, copy);
+        })
+    );
+    return publicState();
+  },
+
+  createCourse: async (payload: {
+    title: string;
+    note?: string;
+    lessons: PdfLesson[];
+  }) => {
+    if (!payload.lessons.length) throw new Error('课程里至少要有一课');
+    const createdAt = now();
+    const course: PdfCourse = {
+      id: makeId('pdf-course'),
+      title: payload.title.trim().slice(0, 60) || '未命名课程',
+      note: (payload.note || '').slice(0, 240),
+      lessons: payload.lessons.map((lesson) => ({
+        id: lesson.id || makeId('pdf-lesson'),
+        title: (lesson.title || '未命名课次').slice(0, 60),
+        documentId: lesson.documentId,
+        pageFrom: Math.max(1, lesson.pageFrom || 1),
+        pageTo: Math.max(lesson.pageFrom || 1, lesson.pageTo || 1),
+        note: (lesson.note || '').slice(0, 240)
+      })),
+      createdAt,
+      updatedAt: createdAt
+    };
+    await putRecord(STORE_COURSES, course);
+    return { state: await publicState(), course };
+  },
+
+  updateCourse: async (
+    id: string,
+    payload: Partial<{ title: string; note: string; lessons: PdfLesson[] }>
+  ) => {
+    const courses = await readAll<PdfCourse>(STORE_COURSES);
+    const course = courses.find((item) => item.id === id);
+    if (!course) throw new Error('课程不存在');
+    if (payload.title) course.title = payload.title.slice(0, 60);
+    if (typeof payload.note === 'string') course.note = payload.note.slice(0, 240);
+    if (Array.isArray(payload.lessons) && payload.lessons.length) {
+      course.lessons = payload.lessons.map((lesson) => ({
+        id: lesson.id || makeId('pdf-lesson'),
+        title: (lesson.title || '未命名课次').slice(0, 60),
+        documentId: lesson.documentId,
+        pageFrom: Math.max(1, lesson.pageFrom || 1),
+        pageTo: Math.max(lesson.pageFrom || 1, lesson.pageTo || 1),
+        note: (lesson.note || '').slice(0, 240)
+      }));
+    }
+    course.updatedAt = now();
+    await putRecord(STORE_COURSES, course);
+    return publicState();
+  },
+
+  deleteCourse: async (id: string) => {
+    await deleteRecord(STORE_COURSES, id);
+    return publicState();
+  },
+
   addPages: async (nodeId: string, pageIds: string[], index?: number) => {
     const nodes = await readNodes();
     const node = nodes.find((item) => item.id === nodeId);
@@ -526,10 +665,29 @@ export const browserApi = {
     nodeId?: string;
     pageIds?: string[];
     title?: string;
+    courseId?: string;
   }) => {
     const nodes = await readNodes();
     let pageIds: string[] = [];
-    if (payload.scope === 'selection') {
+    if (payload.scope === 'course') {
+      const courses = await readAll<PdfCourse>(STORE_COURSES);
+      const course = courses.find((item) => item.id === payload.courseId);
+      if (!course) throw new Error('课程不存在');
+      const documents = await readAll<StoredDocument>(STORE_DOCS);
+      const valid = new Set(
+        documents.flatMap((document) => document.pages.map((page) => page.id))
+      );
+      pageIds = course.lessons.flatMap((lesson) => {
+        const from = Math.max(1, lesson.pageFrom);
+        const to = Math.max(from, lesson.pageTo);
+        const pages: string[] = [];
+        for (let page = from; page <= to; page += 1) {
+          const id = `${lesson.documentId}:${page}`;
+          if (valid.has(id)) pages.push(id);
+        }
+        return pages;
+      });
+    } else if (payload.scope === 'selection') {
       pageIds = payload.pageIds ? [...payload.pageIds] : [];
     } else if (payload.nodeId) {
       const node = nodes.find((item) => item.id === payload.nodeId);
@@ -565,8 +723,11 @@ export const browserApi = {
     }
     if (!output.getPageCount()) throw new Error('没有找到可读取的页面，请重新导入 PDF');
     const node = nodes.find((item) => item.id === payload.nodeId);
+    const courses = await readAll<PdfCourse>(STORE_COURSES);
+    const course = courses.find((item) => item.id === payload.courseId);
     const label =
       payload.title?.trim() ||
+      course?.title ||
       (payload.scope === 'selection' ? '页面选集' : node?.title || '知识树导出');
     const fileName = `${
       label.replace(/[^\p{L}\p{N}\-_\s]/gu, '').trim() || '知识树导出'

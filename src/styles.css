@@ -1801,3 +1801,591 @@ img, video { display: block; max-width: 100%; }
   font-size: 11px;
   color: var(--text-3);
 }
+
+/* ---------- Drawer handle & tree dragging ---------- */
+
+.pdf-drawer-handle {
+  position: fixed;
+  z-index: 58;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-1);
+  border-left: 0;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: var(--bg-panel);
+  color: var(--text-3);
+  box-shadow: var(--shadow-2);
+  transition: color var(--dur) var(--ease), width var(--dur) var(--ease);
+}
+
+.pdf-drawer-handle:hover {
+  width: 30px;
+  color: var(--accent-text);
+}
+
+.pdf-tree-main { cursor: grab; }
+.pdf-tree-main:active { cursor: grabbing; }
+
+.pdf-tree-row.is-node-drag {
+  opacity: 0.45;
+}
+
+.pdf-tree-row.is-drop .pdf-tree-main {
+  color: var(--accent-text);
+}
+
+/* ---------- File manager ---------- */
+
+.files-page,
+.course-page {
+  height: auto;
+  min-height: calc(100vh - 60px);
+  overflow-y: auto;
+}
+
+.pdf-file-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 2px 2px 12px;
+}
+
+.pdf-file-chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding-right: 2px;
+  border-radius: var(--r-full);
+}
+
+.pdf-file-chip-wrap .icon-button {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+}
+
+.pdf-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-full);
+  background: var(--bg-panel);
+  color: var(--text-2);
+  font-size: 12px;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.pdf-file-chip:hover {
+  border-color: var(--line-2);
+  color: var(--text-1);
+}
+
+.pdf-file-chip.is-active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.pdf-file-chip > span:last-child {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.pdf-file-chip.is-active > span:last-child { color: var(--accent-text); }
+
+.pdf-file-list {
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+
+.pdf-file-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 2.2fr) minmax(120px, 0.9fr) 70px 84px 96px 84px 72px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.pdf-file-row:last-child { border-bottom: 0; }
+
+.pdf-file-row:hover:not(.pdf-file-row-head) {
+  background: var(--bg-subtle);
+}
+
+.pdf-file-row-head {
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--line-1);
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.pdf-file-cell {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.pdf-file-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pdf-file-thumb {
+  width: 34px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-file-thumb .pdf-page-canvas { height: 100%; }
+.pdf-file-thumb .pdf-page-canvas canvas { box-shadow: none; }
+
+.pdf-file-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  padding: 2px 4px;
+  border-radius: var(--r-xs);
+}
+
+.pdf-file-name:hover { background: var(--bg-hover); }
+
+.pdf-file-name strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-file-name small {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-file-rename {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+  background: var(--bg-panel);
+  color: var(--text-1);
+  font-size: 13px;
+  outline: none;
+}
+
+.pdf-file-category {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.pdf-file-num {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-file-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+/* ---------- Course builder ---------- */
+
+.pdf-course-meta {
+  display: flex;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.pdf-course-title-input {
+  width: min(420px, 100%);
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-panel);
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+}
+
+.pdf-course-title-input:focus,
+.pdf-course-note-input:focus { border-color: var(--accent-line); }
+
+.pdf-course-note-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-panel);
+  color: var(--text-1);
+  font-size: 13px;
+  outline: none;
+}
+
+.pdf-course-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.6fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.pdf-course-pool,
+.pdf-course-outline {
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdf-course-panel-head {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pdf-course-panel-head strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.pdf-course-pool-scroll {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pdf-course-pool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pdf-course-pool-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 6px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.pdf-course-pool-label em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.pdf-course-pool-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  transition: background var(--dur) var(--ease);
+}
+
+.pdf-course-pool-row:hover { background: var(--bg-hover); }
+
+.pdf-course-pool-thumb {
+  width: 30px;
+  height: 38px;
+  flex-shrink: 0;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-course-pool-thumb .pdf-page-canvas { height: 100%; }
+.pdf-course-pool-thumb .pdf-page-canvas canvas { box-shadow: none; }
+
+.pdf-course-pool-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdf-course-pool-copy strong {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-course-pool-copy small {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.pdf-course-lessons {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.pdf-course-lesson {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+
+.pdf-course-lesson-index {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  padding-top: 7px;
+}
+
+.pdf-course-lesson-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pdf-course-lesson-title {
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+}
+
+.pdf-course-lesson-title:focus { border-color: var(--accent-line); }
+
+.pdf-course-lesson-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pdf-course-source {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.pdf-course-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.pdf-course-range input {
+  width: 44px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-xs);
+  background: var(--bg-sunken);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: center;
+  outline: none;
+}
+
+.pdf-course-lesson-note {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px dashed var(--line-1);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  outline: none;
+}
+
+.pdf-course-lesson-note:focus { border-style: solid; border-color: var(--accent-line); }
+
+.pdf-course-lesson-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.pdf-course-lesson-tools .icon-button {
+  width: 26px;
+  height: 24px;
+  flex-basis: 24px;
+}
+
+.pdf-course-actions {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line-1);
+  background: var(--bg-subtle);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pdf-course-empty {
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+}
+
+.pdf-course-library {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pdf-course-library > strong {
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.pdf-course-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.pdf-course-card {
+  padding: 12px 14px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pdf-course-card-body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+
+.pdf-course-card-body strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-course-card-body p {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-course-card-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.pdf-course-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1080px) {
+  .pdf-course-layout { grid-template-columns: minmax(0, 1fr); }
+  .pdf-file-row { grid-template-columns: minmax(0, 1fr) 110px 60px; }
+  .pdf-file-row > span:nth-child(4),
+  .pdf-file-row > span:nth-child(5),
+  .pdf-file-row > span:nth-child(6) { display: none; }
+  .pdf-file-row-head > span:nth-child(4),
+  .pdf-file-row-head > span:nth-child(5),
+  .pdf-file-row-head > span:nth-child(6) { display: none; }
+}

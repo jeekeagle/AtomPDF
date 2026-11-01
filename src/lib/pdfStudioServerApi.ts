@@ -1,5 +1,8 @@
 import type {
+  PdfCategory,
+  PdfCourse,
   PdfExportScope,
+  PdfLesson,
   PdfNodeTone,
   PdfStudioState,
   PdfThemeRecord,
@@ -65,10 +68,10 @@ export const serverApi = {
     return response.json() as Promise<PdfStudioState>;
   },
 
-  renameDocument: (id: string, name: string) =>
+  renameDocument: (id: string, name: string, categoryId?: string | null) =>
     jsonRequest<PdfStudioState>(`/api/pdf-studio/documents/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name, ...(categoryId === undefined ? {} : { categoryId }) })
     }),
 
   deleteDocument: (id: string) =>
@@ -79,6 +82,22 @@ export const serverApi = {
   documentUrl: (id: string) => `/api/pdf-studio/documents/${id}/file`,
 
   documentDownloadUrl: (id: string) => `/api/pdf-studio/documents/${id}/file?download=1`,
+
+  downloadDocument: async (id: string) => {
+    const response = await fetch(`/api/pdf-studio/documents/${id}/file?download=1`);
+    if (!response.ok) throw new Error('下载失败');
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const utf8 = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    let fileName = '文档.pdf';
+    if (utf8?.[1]) {
+      try {
+        fileName = decodeURIComponent(utf8[1]);
+      } catch {
+        fileName = '文档.pdf';
+      }
+    }
+    return { blob: await response.blob(), fileName };
+  },
 
   createNode: (payload: {
     title: string;
@@ -144,6 +163,56 @@ export const serverApi = {
       method: 'DELETE'
     }),
 
+  createCategory: (payload: { name: string; tone?: PdfNodeTone }) =>
+    jsonRequest<{ state: PdfStudioState; category: PdfCategory }>(
+      '/api/pdf-studio/categories',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    ),
+
+  updateCategory: (
+    id: string,
+    payload: Partial<{ name: string; tone: PdfNodeTone; order: number }>
+  ) =>
+    jsonRequest<PdfStudioState>(`/api/pdf-studio/categories/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    }),
+
+  deleteCategory: (id: string) =>
+    jsonRequest<PdfStudioState>(`/api/pdf-studio/categories/${id}`, {
+      method: 'DELETE'
+    }),
+
+  createCourse: (payload: {
+    title: string;
+    note?: string;
+    lessons: PdfLesson[];
+  }) =>
+    jsonRequest<{ state: PdfStudioState; course: PdfCourse }>(
+      '/api/pdf-studio/courses',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    ),
+
+  updateCourse: (
+    id: string,
+    payload: Partial<{ title: string; note: string; lessons: PdfLesson[] }>
+  ) =>
+    jsonRequest<PdfStudioState>(`/api/pdf-studio/courses/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    }),
+
+  deleteCourse: (id: string) =>
+    jsonRequest<PdfStudioState>(`/api/pdf-studio/courses/${id}`, {
+      method: 'DELETE'
+    }),
+
   addPages: (nodeId: string, pageIds: string[], index?: number) =>
     jsonRequest<PdfStudioState>(`/api/pdf-studio/nodes/${nodeId}/pages`, {
       method: 'POST',
@@ -167,6 +236,7 @@ export const serverApi = {
     nodeId?: string;
     pageIds?: string[];
     title?: string;
+    courseId?: string;
   }): Promise<PdfExportResult> => {
     const response = await fetch('/api/pdf-studio/export', {
       method: 'POST',

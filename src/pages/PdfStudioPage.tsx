@@ -82,6 +82,7 @@ interface ThemeDraft {
 }
 
 const PAGE_DRAG_TYPE = 'application/x-pdf-studio-page';
+const NODE_DRAG_TYPE = 'application/x-pdf-studio-node';
 
 const toneLabel: Record<PdfNodeTone, string> = {
   brick: '砖红',
@@ -177,6 +178,13 @@ const storedTheme = (): PdfStudioTheme => {
   return value === 'noir' || value === 'ink' ? value : 'paper';
 };
 
+const storedDrawer = (): 'inline' | 'drawer' => {
+  if (typeof window === 'undefined') return 'inline';
+  return window.localStorage.getItem('pdf-studio-tree-drawer') === 'drawer'
+    ? 'drawer'
+    : 'inline';
+};
+
 export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPageProps = {}) {
   const [studio, setStudio] = useState<PdfStudioState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -191,6 +199,7 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [dropNodeId, setDropNodeId] = useState('');
+  const [dragNodeId, setDragNodeId] = useState('');
   const [dropStackIndex, setDropStackIndex] = useState<number | null>(null);
   const [nodeDraft, setNodeDraft] = useState<NodeDraft | null>(null);
   const [nodeSaving, setNodeSaving] = useState(false);
@@ -199,7 +208,7 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
   const [workspaceEditing, setWorkspaceEditing] = useState(false);
   const [workspaceName, setWorkspaceName] = useState('');
   const [exportScope, setExportScope] = useState<PdfExportScope>('node');
-  const [treeDrawer, setTreeDrawer] = useState<'inline' | 'drawer'>('inline');
+  const [treeDrawer, setTreeDrawer] = useState<'inline' | 'drawer'>(storedDrawer);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [themeDraft, setThemeDraft] = useState<ThemeDraft | null>(null);
   const [themeSaving, setThemeSaving] = useState(false);
@@ -233,6 +242,10 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
     root.classList.add(`theme-${theme}`);
     if (theme === 'noir') root.classList.add('dark');
   }, [theme]);
+
+  useEffect(() => {
+    window.localStorage.setItem('pdf-studio-tree-drawer', treeDrawer);
+  }, [treeDrawer]);
 
   useEffect(() => {
     if (!toast) return;
@@ -655,6 +668,39 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
     }
   };
 
+  const moveNodeInto = async (nodeId: string, parentId: string) => {
+    if (!studio) return;
+    const node = studio.nodes.find((item) => item.id === nodeId);
+    const parent = studio.nodes.find((item) => item.id === parentId);
+    if (!node || !parent) return;
+    if (isNodeDescendant(studio.nodes, nodeId, parentId)) {
+      setToast({ kind: 'error', text: '不能把节点移到它自己的子节点下面' });
+      return;
+    }
+    setBusy('调整分类树');
+    try {
+      const siblings = studio.nodes.filter(
+        (item) => item.parentId === parentId && item.id !== nodeId
+      );
+      const next = await pdfStudioApi.updateNode(nodeId, {
+        parentId,
+        order: siblings.length
+          ? Math.max(...siblings.map((item) => item.order)) + 1
+          : 0
+      });
+      setStudio(next);
+      setExpanded((current) => new Set([...current, parentId]));
+      setToast({ kind: 'ok', text: `「${node.title}」已移到「${parent.title}」下` });
+    } catch (moveError) {
+      setToast({
+        kind: 'error',
+        text: moveError instanceof Error ? moveError.message : '移动节点失败'
+      });
+    } finally {
+      setBusy('');
+    }
+  };
+
   const openComposeTheme = (pages: string[], sourceLabel: string) => {
     const unique = [...new Set(pages)].filter((id) => pageIndex.has(id));
     if (!unique.length) {
@@ -727,6 +773,14 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
           className={`pdf-tree-row ${isSelected ? 'is-selected' : ''} ${isDrop ? 'is-drop' : ''}`}
           style={{ paddingLeft: `${8 + depth * 15}px` }}
           onDragOver={(event) => {
+            if (event.dataTransfer.types.includes(NODE_DRAG_TYPE)) {
+              if (dragNodeId && dragNodeId !== node.id && !isNodeDescendant(studio?.nodes ?? [], dragNodeId, node.id)) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setDropNodeId(node.id);
+              }
+              return;
+            }
             if (!event.dataTransfer.types.includes(PAGE_DRAG_TYPE)) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = 'copy';
@@ -738,6 +792,16 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
             }
           }}
           onDrop={(event) => {
+            if (event.dataTransfer.types.includes(NODE_DRAG_TYPE)) {
+              event.preventDefault();
+              event.stopPropagation();
+              const sourceId = event.dataTransfer.getData(NODE_DRAG_TYPE);
+              setDropNodeId('');
+              if (sourceId && sourceId !== node.id) {
+                void moveNodeInto(sourceId, node.id);
+              }
+              return;
+            }
             if (!event.dataTransfer.types.includes(PAGE_DRAG_TYPE)) return;
             event.preventDefault();
             event.stopPropagation();
@@ -761,7 +825,21 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
               isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />
             ) : null}
           </button>
-          <button className="pdf-tree-main" onClick={() => chooseNode(node.id)}>
+          <button
+            className="pdf-tree-main"
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.setData(NODE_DRAG_TYPE, node.id);
+              event.dataTransfer.effectAllowed = 'move';
+              setDragNodeId(node.id);
+            }}
+            onDragEnd={() => {
+              setDragNodeId('');
+              setDropNodeId('');
+            }}
+            onClick={() => chooseNode(node.id)}
+            title="拖到别的节点上可以改变层级"
+          >
             <span className={`pdf-tone-dot is-${node.tone}`} />
             <span className="pdf-tree-copy">
               <strong>{node.title}</strong>
@@ -936,6 +1014,17 @@ export function PdfStudioPage({ onThemeCreated, onOpenLibrary }: PdfStudioPagePr
           </button>
         ))}
       </div>
+
+      {treeDrawer === 'drawer' && !drawerOpen && (
+        <button
+          className="pdf-drawer-handle"
+          onClick={() => setDrawerOpen(true)}
+          title="展开目录"
+          aria-label="展开目录"
+        >
+          <PanelLeftOpen size={16} />
+        </button>
+      )}
 
       <div className={`pdf-workspace ${treeDrawer === 'drawer' ? 'is-drawer' : ''}`}>
         <section

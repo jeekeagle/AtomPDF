@@ -5,6 +5,8 @@ import express, { type Express, type Response } from 'express';
 import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type {
+  PdfCategory,
+  PdfCourse,
   PdfDocumentRecord,
   PdfNodeTone,
   PdfStudioState,
@@ -23,6 +25,8 @@ interface StoredState {
   documents: PdfDocumentRecord[];
   nodes: PdfTreeNode[];
   themes: PdfThemeRecord[];
+  categories: PdfCategory[];
+  courses: PdfCourse[];
   updatedAt: string;
 }
 
@@ -75,8 +79,19 @@ const seedState = (): StoredState => ({
   documents: [],
   nodes: seedNodes(),
   themes: [],
+  categories: seedCategories(),
+  courses: [],
   updatedAt: now()
 });
+
+const seedCategories = (): PdfCategory[] => {
+  const createdAt = now();
+  return [
+    { id: 'pdf-cat-handout', name: '讲义', tone: 'teal', order: 0, createdAt },
+    { id: 'pdf-cat-paper', name: '论文', tone: 'gold', order: 1, createdAt },
+    { id: 'pdf-cat-reference', name: '参考', tone: 'ink', order: 2, createdAt }
+  ];
+};
 
 const normalizeState = (raw: Partial<StoredState> | null): StoredState => {
   const fallback = seedState();
@@ -99,11 +114,25 @@ const normalizeState = (raw: Partial<StoredState> | null): StoredState => {
           Boolean(item?.id && item?.title && Array.isArray(item.pages))
       )
     : [];
+  const categories = Array.isArray(raw?.categories)
+    ? raw.categories.filter(
+        (item): item is PdfCategory =>
+          Boolean(item?.id && item?.name && typeof item.order === 'number')
+      )
+    : fallback.categories;
+  const courses = Array.isArray(raw?.courses)
+    ? raw.courses.filter(
+        (item): item is PdfCourse =>
+          Boolean(item?.id && item?.title && Array.isArray(item.lessons))
+      )
+    : [];
   return {
     workspaceName: raw?.workspaceName?.trim() || fallback.workspaceName,
     documents,
     nodes,
     themes,
+    categories,
+    courses,
     updatedAt: raw?.updatedAt || now()
   };
 };
@@ -141,7 +170,9 @@ const publicState = (state = readState()): PdfStudioState => {
       pages,
       nodes: state.nodes.length,
       placedPages,
-      themes: state.themes.length
+      themes: state.themes.length,
+      categories: state.categories.length,
+      courses: state.courses.length
     }
   };
 };
@@ -241,6 +272,7 @@ const parsePdf = async (buffer: Buffer, id: string, name: string, fileName: stri
     sizeBytes: buffer.length,
     pageCount: rawPages.length,
     importedAt: now(),
+    categoryId: null,
     pages: rawPages.map((page, index) => {
       const { width, height } = page.getSize();
       const number = index + 1;
@@ -382,6 +414,14 @@ export function mountPdfStudio(app: Express) {
     }
     const name = String(req.body?.name || '').trim();
     if (name) document.name = name.slice(0, 120);
+    if (typeof req.body?.categoryId !== 'undefined') {
+      const categoryId = req.body.categoryId ? String(req.body.categoryId) : null;
+      if (categoryId && !state.categories.some((item) => item.id === categoryId)) {
+        res.status(400).json({ error: '分类不存在' });
+        return;
+      }
+      document.categoryId = categoryId;
+    }
     writeState(state);
     sendState(res, state);
   });
@@ -586,6 +626,29 @@ export function mountPdfStudio(app: Express) {
 
   app.post('/api/pdf-studio/export', async (req, res) => {
     const state = readState();
+    if (req.body?.scope === 'course') {
+      const course = state.courses.find((item) => item.id === req.body?.courseId);
+      if (!course) {
+        res.status(404).json({ error: '课程不存在' });
+        return;
+      }
+      const valid = validPageIds(state);
+      const pageIds = course.lessons.flatMap((lesson) => {
+        const from = Math.max(1, lesson.pageFrom);
+        const to = Math.max(from, lesson.pageTo);
+        const pages: string[] = [];
+        for (let page = from; page <= to; page += 1) {
+          const id = `${lesson.documentId}:${page}`;
+          if (valid.has(id)) pages.push(id);
+        }
+        return pages;
+      });
+      if (!pageIds.length) {
+        res.status(400).json({ error: '这门课还没有可导出的页面' });
+        return;
+      }
+      req.body = { ...req.body, scope: 'selection', pageIds, title: req.body?.title || course.title };
+    }
     const scope =
       req.body?.scope === 'node' || req.body?.scope === 'selection'
         ? req.body.scope
@@ -696,6 +759,133 @@ export function mountPdfStudio(app: Express) {
     state.themes.unshift(theme);
     writeState(state);
     res.status(201).json({ state: publicState(state), theme });
+  });
+
+  app.post('/api/pdf-studio/categories', (req, res) => {
+    const state = readState();
+    const name = String(req.body?.name || '').trim();
+    if (!name) {
+      res.status(400).json({ error: '请填写分类名称' });
+      return;
+    }
+    const createdAt = now();
+    const category: PdfCategory = {
+      id: makeId('pdf-cat'),
+      name: name.slice(0, 30),
+      tone: tones.includes(req.body?.tone) ? (req.body.tone as PdfNodeTone) : 'teal',
+      order: state.categories.length
+        ? Math.max(...state.categories.map((item) => item.order)) + 1
+        : 0,
+      createdAt
+    };
+    state.categories.push(category);
+    writeState(state);
+    res.status(201).json({ state: publicState(state), category });
+  });
+
+  app.patch('/api/pdf-studio/categories/:id', (req, res) => {
+    const state = readState();
+    const category = state.categories.find((item) => item.id === req.params.id);
+    if (!category) {
+      res.status(404).json({ error: '分类不存在' });
+      return;
+    }
+    const name = String(req.body?.name || '').trim();
+    if (name) category.name = name.slice(0, 30);
+    if (tones.includes(req.body?.tone)) category.tone = req.body.tone as PdfNodeTone;
+    if (Number.isFinite(Number(req.body?.order))) category.order = Number(req.body.order);
+    writeState(state);
+    sendState(res, state);
+  });
+
+  app.delete('/api/pdf-studio/categories/:id', (req, res) => {
+    const state = readState();
+    const category = state.categories.find((item) => item.id === req.params.id);
+    if (!category) {
+      res.status(404).json({ error: '分类不存在' });
+      return;
+    }
+    state.categories = state.categories.filter((item) => item.id !== category.id);
+    for (const document of state.documents) {
+      if (document.categoryId === category.id) document.categoryId = null;
+    }
+    writeState(state);
+    sendState(res, state);
+  });
+
+  app.post('/api/pdf-studio/courses', (req, res) => {
+    const state = readState();
+    const title = String(req.body?.title || '').trim();
+    if (!title) {
+      res.status(400).json({ error: '请填写课程名称' });
+      return;
+    }
+    const lessons = Array.isArray(req.body?.lessons)
+      ? req.body.lessons
+          .filter((item: unknown) => item && typeof item === 'object')
+          .map((item: Record<string, unknown>) => ({
+            id: String(item.id || makeId('pdf-lesson')),
+            title: String(item.title || '未命名课次').slice(0, 60),
+            documentId: String(item.documentId || ''),
+            pageFrom: Math.max(1, Number(item.pageFrom) || 1),
+            pageTo: Math.max(1, Number(item.pageTo) || 1),
+            note: String(item.note || '').slice(0, 240)
+          }))
+          .filter((item: { documentId: string }) => item.documentId)
+      : [];
+    if (!lessons.length) {
+      res.status(400).json({ error: '课程里至少要有一课' });
+      return;
+    }
+    const createdAt = now();
+    const course: PdfCourse = {
+      id: makeId('pdf-course'),
+      title: title.slice(0, 60),
+      note: String(req.body?.note || '').trim().slice(0, 240),
+      lessons,
+      createdAt,
+      updatedAt: createdAt
+    };
+    state.courses.unshift(course);
+    writeState(state);
+    res.status(201).json({ state: publicState(state), course });
+  });
+
+  app.patch('/api/pdf-studio/courses/:id', (req, res) => {
+    const state = readState();
+    const course = state.courses.find((item) => item.id === req.params.id);
+    if (!course) {
+      res.status(404).json({ error: '课程不存在' });
+      return;
+    }
+    const title = String(req.body?.title || '').trim();
+    if (title) course.title = title.slice(0, 60);
+    if (typeof req.body?.note === 'string') course.note = req.body.note.trim().slice(0, 240);
+    if (Array.isArray(req.body?.lessons) && req.body.lessons.length) {
+      course.lessons = req.body.lessons.map((item: Record<string, unknown>) => ({
+        id: String(item.id || makeId('pdf-lesson')),
+        title: String(item.title || '未命名课次').slice(0, 60),
+        documentId: String(item.documentId || ''),
+        pageFrom: Math.max(1, Number(item.pageFrom) || 1),
+        pageTo: Math.max(1, Number(item.pageTo) || 1),
+        note: String(item.note || '').slice(0, 240)
+      }));
+    }
+    course.updatedAt = now();
+    writeState(state);
+    sendState(res, state);
+  });
+
+  app.delete('/api/pdf-studio/courses/:id', (req, res) => {
+    const state = readState();
+    const course = state.courses.find((item) => item.id === req.params.id);
+    if (!course) {
+      res.status(404).json({ error: '课程不存在' });
+      return;
+    }
+    state.courses = state.courses.filter((item) => item.id !== course.id);
+    writeState(state);
+    sendState(res, state);
   });
 
   app.patch('/api/pdf-studio/themes/:id', (req, res) => {

@@ -1,12 +1,23 @@
 ﻿import { useEffect, useState } from 'react';
-import { BookMarked, LayoutGrid } from 'lucide-react';
+import { BookMarked, BookOpen, Files, LayoutGrid } from 'lucide-react';
 import { AccessGate } from './components/AccessGate';
 import { gateEnabled, isUnlocked } from './lib/accessGate';
+import { CourseBuilder } from './pages/CourseBuilder';
+import { FilesView } from './pages/FilesView';
 import { PdfStudioPage } from './pages/PdfStudioPage';
 import { ThemeLibraryPage } from './pages/ThemeLibraryPage';
 
+type View = 'workbench' | 'files' | 'courses' | 'themes';
+
+const views: Array<{ id: View; label: string; icon: typeof LayoutGrid }> = [
+  { id: 'workbench', label: '工作台', icon: LayoutGrid },
+  { id: 'files', label: '文件', icon: Files },
+  { id: 'courses', label: '组课', icon: BookOpen },
+  { id: 'themes', label: '主题库', icon: BookMarked }
+];
+
 export default function App() {
-  const [view, setView] = useState<'workbench' | 'themes'>('workbench');
+  const [view, setView] = useState<View>('workbench');
   const [granted, setGranted] = useState(!gateEnabled || isUnlocked());
 
   useEffect(() => {
@@ -32,36 +43,31 @@ export default function App() {
             </span>
           </div>
           <nav className="app-switch" role="tablist" aria-label="视图切换">
-            <button
-              className={view === 'workbench' ? 'is-active' : ''}
-              onClick={() => setView('workbench')}
-              role="tab"
-              aria-selected={view === 'workbench'}
-            >
-              <LayoutGrid size={14} />
-              工作台
-            </button>
-            <button
-              className={view === 'themes' ? 'is-active' : ''}
-              onClick={() => setView('themes')}
-              role="tab"
-              aria-selected={view === 'themes'}
-            >
-              <BookMarked size={14} />
-              主题库
-            </button>
+            {views.map((item) => (
+              <button
+                key={item.id}
+                className={view === item.id ? 'is-active' : ''}
+                onClick={() => setView(item.id)}
+                role="tab"
+                aria-selected={view === item.id}
+              >
+                <item.icon size={14} />
+                {item.label}
+              </button>
+            ))}
           </nav>
           <span className="topbar-note">本地运行 · 资料与书架只存在这台机器</span>
         </header>
         <main className="app-main">
-          {view === 'workbench' ? (
+          {view === 'workbench' && (
             <PdfStudioPage
               onThemeCreated={() => setView('themes')}
               onOpenLibrary={() => setView('themes')}
             />
-          ) : (
-            <ThemeLibraryPage />
           )}
+          {view === 'files' && <FilesView />}
+          {view === 'courses' && <CourseBuilder />}
+          {view === 'themes' && <ThemeLibraryPage />}
         </main>
       </div>
     </div>
